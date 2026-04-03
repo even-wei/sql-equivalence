@@ -117,25 +117,6 @@ SQL_B ──→ [Parse] ──→ [Pass 1] ──→ [Pass 2] ──→ ... ─�
 - **UDFs** — cannot reason about user-defined function semantics.
 - **EXCEPT order** — correctly preserved (EXCEPT is not commutative).
 
-## Comparison with Recce's `breaking.py`
-
-Recce's breaking change detector uses **pure AST structural comparison** (`old_expr == new_expr`). This tool goes further by **normalizing both sides** before comparing.
-
-| Scenario | Recce says | This tool says |
-|----------|-----------|---------------|
-| CTE rename | `modified` (all columns) | **equivalent** |
-| Subquery alias rename | `modified` | **equivalent** |
-| `WHERE a AND b` → `WHERE b AND a` | `breaking` | **equivalent** |
-| `x > 5 AND x > 3` → `x > 5` | `breaking` | **equivalent** |
-| `IN (SELECT ...)` → `EXISTS (...)` | `breaking` | **equivalent** |
-| Column reorder | `non_breaking` | **equivalent** |
-| Add a column | `non_breaking` | `added` (column-level) |
-| Remove a column | `partial_breaking` | `removed` (column-level) |
-
-The two tools are complementary:
-- **Recce** answers: *"What's the impact of this change?"* (breaking vs safe)
-- **This tool** answers: *"Are these two queries semantically the same?"*
-
 ## Project Structure
 
 ```
