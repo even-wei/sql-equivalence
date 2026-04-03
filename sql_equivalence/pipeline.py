@@ -17,18 +17,30 @@ from sql_equivalence.passes.subquery_join import SubqueryJoinPass
 
 # Passes in dependency order.
 # CTE inline runs first so inlined subqueries get uniform alias treatment.
+# Pass order matters:
+# 1. CTE inline first (so inlined subqueries get uniform treatment)
+# 2. Structural rewrites (subquery, predicate, commutativity) before alias normalization
+# 3. Alias normalization after commutativity (so JOIN-reordered tables get consistent names)
+# 4. Column reorder last (depends on knowing positional references)
 DEFAULT_PASSES: list[RewritePass] = [
     CTEInlinePass(),
-    AliasNormalizationPass(),
     SubqueryJoinPass(),
     PredicateSimplificationPass(),
     CommutativityPass(),
+    AliasNormalizationPass(),
     ColumnReorderPass(),
 ]
 
 
 # Dialects where unquoted identifiers are case-insensitive
 _CASE_INSENSITIVE_DIALECTS = {"snowflake", "oracle", "db2"}
+
+
+def _strip_comments(expression: exp.Expression) -> None:
+    """Remove all comments from the AST — they don't affect semantics."""
+    for node in expression.walk():
+        if hasattr(node, "comments") and node.comments:
+            node.comments = []
 
 
 def _strip_unnecessary_parens(expression: exp.Expression) -> None:
@@ -56,6 +68,7 @@ def _normalize_identifier_case(expression: exp.Expression, dialect: str | None) 
 def _normalize(sql: str, dialect: str | None, passes: list[RewritePass]) -> tuple[str, list[RewriteStep]]:
     """Parse SQL and run it through all rewrite passes, collecting steps."""
     expression = parse_one(sql, dialect=dialect)
+    _strip_comments(expression)
     _normalize_identifier_case(expression, dialect)
     _strip_unnecessary_parens(expression)
     all_steps: list[RewriteStep] = []

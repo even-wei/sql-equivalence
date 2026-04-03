@@ -18,6 +18,7 @@ class AliasNormalizationPass(RewritePass):
         rename_map: Dict[str, str] = {}
         subquery_counter = 0
         cte_counter = 0
+        table_counter = 0
 
         # Collect root SELECT column aliases to preserve
         root_column_aliases: set[str] = set()
@@ -42,18 +43,25 @@ class AliasNormalizationPass(RewritePass):
                 subquery_counter += 1
                 rename_map[old_alias] = new_name
 
+        # Phase 3: Rename table aliases (FROM EMP AS E → FROM EMP AS _tbl0)
+        for table in tree.find_all(exp.Table):
+            old_alias = table.alias
+            if old_alias and old_alias not in root_column_aliases and old_alias not in rename_map:
+                new_name = f"_tbl{table_counter}"
+                table_counter += 1
+                rename_map[old_alias] = new_name
+
         if not rename_map:
             return tree, steps
 
         before_sql = tree.sql()
 
-        # Phase 3: Apply all renames throughout the tree
+        # Phase 4: Apply all renames throughout the tree
 
         # Rename CTE definitions
         for cte_node in tree.find_all(exp.CTE):
             old_name = cte_node.alias
             if old_name in rename_map:
-                # CTE alias is stored in the alias property via the TableAlias child
                 table_alias = cte_node.args.get("alias")
                 if isinstance(table_alias, exp.TableAlias):
                     table_alias.set("this", exp.to_identifier(rename_map[old_name]))
@@ -66,13 +74,22 @@ class AliasNormalizationPass(RewritePass):
                 if isinstance(table_alias, exp.TableAlias):
                     table_alias.set("this", exp.to_identifier(rename_map[old_alias]))
 
-        # Rename table references (FROM, JOIN clauses referencing CTEs/subqueries)
+        # Rename table aliases
+        for table in tree.find_all(exp.Table):
+            old_alias = table.alias
+            if old_alias in rename_map:
+                table_alias = table.args.get("alias")
+                if isinstance(table_alias, exp.TableAlias):
+                    table_alias.set("this", exp.to_identifier(rename_map[old_alias]))
+
+        # Rename table references (FROM, JOIN clauses referencing CTEs/subqueries by name)
+        # Tables referenced by name (not alias) — e.g. CTE references
         for table in tree.find_all(exp.Table):
             table_name = table.name
-            if table_name in rename_map:
+            if table_name in rename_map and not table.alias:
                 table.set("this", exp.to_identifier(rename_map[table_name]))
 
-        # Rename column references (e.g., src.x -> _cte0.x)
+        # Rename column references (e.g., EMP.SAL -> _tbl0.SAL)
         for column in tree.find_all(exp.Column):
             if column.table and column.table in rename_map:
                 column.set("table", exp.to_identifier(rename_map[column.table]))

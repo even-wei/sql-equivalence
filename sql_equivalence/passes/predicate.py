@@ -207,6 +207,18 @@ def _simplify_expression(node: exp.Expression) -> tuple[exp.Expression, bool]:
             # All were identity elements
             return exp.Boolean(this=is_and), True
 
+        # Deduplicate identical operands (e.g. x = 10 AND x = 10)
+        seen: set[str] = set()
+        deduped: list[exp.Expression] = []
+        for op in filtered:
+            key = op.sql()
+            if key not in seen:
+                seen.add(key)
+                deduped.append(op)
+        if len(deduped) < len(filtered):
+            changed = True
+            filtered = deduped
+
         # Absorption
         absorbed = _absorb_comparisons(filtered, is_and)
         if len(absorbed) < len(filtered):

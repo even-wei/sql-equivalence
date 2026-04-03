@@ -21,6 +21,7 @@ class CommutativityPass(RewritePass):
         tree = self._sort_in_lists(tree)
         tree = self._sort_inner_joins(tree)
         tree = self._sort_unions(tree)
+        tree = self._sort_group_by(tree)
 
         steps: list[RewriteStep] = []
         after_sql = tree.sql()
@@ -181,6 +182,20 @@ class CommutativityPass(RewritePass):
             right = node.args.get("expression")
             return self._contains_except(left) or self._contains_except(right)
         return False
+
+    def _sort_group_by(self, tree: exp.Expression) -> exp.Expression:
+        """Sort GROUP BY expressions — order doesn't affect semantics."""
+        for select in list(tree.find_all(exp.Select)):
+            group = select.args.get("group")
+            if not group:
+                continue
+            expressions = group.expressions
+            if len(expressions) <= 1:
+                continue
+            sorted_exprs = sorted(expressions, key=lambda e: e.sql())
+            if [e.sql() for e in expressions] != [e.sql() for e in sorted_exprs]:
+                group.set("expressions", [e.copy() for e in sorted_exprs])
+        return tree
 
     def _flatten_set_op(
         self, node: exp.Expression, node_type: type[exp.Expression]
